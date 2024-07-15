@@ -123,5 +123,8 @@ export const createMMKV = (config: Configuration): NativeMMKV => {
     trim: () => {
       // no-op
     },
+    enableAutoKeyExpire: () => {
+      // no-op
+    },
   };
 };

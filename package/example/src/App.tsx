@@ -23,7 +23,8 @@ export default function App() {
     }
     try {
       console.log('setting...');
-      storage.set(key, text);
+      storage.enableAutoKeyExpire();
+      storage.set(key, text, 10);
       console.log('set.');
     } catch (e) {
       console.error('Error:', e);

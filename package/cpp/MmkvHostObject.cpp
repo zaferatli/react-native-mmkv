@@ -62,7 +62,7 @@ MmkvHostObject::~MmkvHostObject() {
 std::vector<jsi::PropNameID> MmkvHostObject::getPropertyNames(jsi::Runtime& rt) {
   return jsi::PropNameID::names(rt, "set", "getBoolean", "getBuffer", "getString", "getNumber",
                                 "contains", "delete", "getAllKeys", "deleteAll", "recrypt", "trim",
-                                "size");
+                                "size", "enableAutoKeyExpire");
 }
 
 MMKVMode MmkvHostObject::getMMKVMode(const facebook::react::MMKVConfig& config) {
@@ -83,47 +83,58 @@ MMKVMode MmkvHostObject::getMMKVMode(const facebook::react::MMKVConfig& config) 
 jsi::Value MmkvHostObject::get(jsi::Runtime& runtime, const jsi::PropNameID& propNameId) {
   std::string propName = propNameId.utf8(runtime);
 
+  void setKeyValue(MMKV* instance, const jsi::Value& value, const std::string& keyName, uint32_t expireDuration) {
+    if (expireDuration >= 0) {
+      instance->set(value, keyName, expireDuration);
+    } else {
+      instance->set(value, keyName);
+    }
+  }
+
   if (propName == "set") {
-    // MMKV.set(key: string, value: string | number | bool | ArrayBuffer)
-    return jsi::Function::createFromHostFunction(
+      // MMKV.set(key: string, value: string | number | bool | ArrayBuffer, expireDuration?: uint32_t)
+      return jsi::Function::createFromHostFunction(
         runtime, jsi::PropNameID::forAscii(runtime, propName),
-        2, // key, value
+        3, // key, value, expireDuration (optional)
         [this](jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments,
-               size_t count) -> jsi::Value {
-          if (count != 2 || !arguments[0].isString()) {
+              size_t count) -> jsi::Value {
+          if (count < 2 || !arguments[0].isString()) {
             [[unlikely]];
             throw jsi::JSError(runtime,
-                               "MMKV::set: First argument ('key') has to be of type string!");
+                              "MMKV::set: First argument ('key') has to be of type string!");
           }
 
           std::string keyName = arguments[0].asString(runtime).utf8(runtime);
+          jsi::Value value = arguments[1];
+          uint32_t expireDuration = -1;
 
-          if (arguments[1].isBool()) {
+          if (count >= 3 && arguments[2].isNumber()) {
+            expireDuration = static_cast<uint32_t>(arguments[2].asNumber());
+          }
+
+          if (value.isBool()) {
             // bool
-            instance->set(arguments[1].getBool(), keyName);
-          } else if (arguments[1].isNumber()) {
+            performSetOperation(instance, value.getBool(), keyName, expireDuration);
+          } else if (value.isNumber()) {
             // number
-            instance->set(arguments[1].getNumber(), keyName);
-          } else if (arguments[1].isString()) {
+            performSetOperation(instance, value.getNumber(), keyName, expireDuration);
+          } else if (value.isString()) {
             // string
-            std::string stringValue = arguments[1].asString(runtime).utf8(runtime);
-            instance->set(stringValue, keyName);
-          } else if (arguments[1].isObject()) {
+            std::string stringValue = value.asString(runtime).utf8(runtime);
+            performSetOperation(instance, jsi::String::createFromUtf8(runtime, stringValue), keyName, expireDuration);
+          } else if (value.isObject()) {
             // object
-            jsi::Object object = arguments[1].asObject(runtime);
+            jsi::Object object = value.asObject(runtime);
             if (object.isArrayBuffer(runtime)) {
-              // ArrayBuffer
               jsi::ArrayBuffer arrayBuffer = object.getArrayBuffer(runtime);
               MMBuffer data(arrayBuffer.data(runtime), arrayBuffer.size(runtime), MMBufferNoCopy);
-              instance->set(data, keyName);
+              performSetOperation(instance, data, keyName, expireDuration);
             } else {
-              // unknown object
               throw jsi::JSError(
                   runtime,
                   "MMKV::set: 'value' argument is an object, but not of type ArrayBuffer!");
             }
           } else {
-            // unknown type
             throw jsi::JSError(
                 runtime,
                 "MMKV::set: 'value' argument is not of type bool, number, string or buffer!");
@@ -336,6 +347,23 @@ jsi::Value MmkvHostObject::get(jsi::Runtime& runtime, const jsi::PropNameID& pro
     // MMKV.size
     size_t size = instance->actualSize();
     return jsi::Value(static_cast<int>(size));
+  }
+
+    if (propName == "enableAutoKeyExpire") {
+    // MMKV.enableAutoKeyExpire(expireDuration: number = 0)
+    return jsi::Function::createFromHostFunction(
+        runtime, jsi::PropNameID::forAscii(runtime, propName),
+        1, // expireDuration
+        [this](jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments,
+               size_t count) -> jsi::Value {
+          uint32_t expireDuration = 0;
+          if (count == 1 ) {
+            expireDuration = static_cast<uint32_t>(arguments[0].asNumber());
+          }
+          instance->enableAutoKeyExpire(expireDuration);
+
+          return jsi::Value::undefined();
+        });
   }
 
   return jsi::Value::undefined();

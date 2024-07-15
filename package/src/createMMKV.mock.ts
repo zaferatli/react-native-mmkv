@@ -33,5 +33,8 @@ export const createMockMMKV = (): NativeMMKV => {
     trim: () => {
       // no-op
     },
+    enableAutoKeyExpire: () => {
+      // no-op
+    },
   };
 };
